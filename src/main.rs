@@ -1,10 +1,10 @@
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, BufRead, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const MAX_PATH_LENGTH: usize = 1024;
-const VERSION: &str = "1.2.1";
+// const _MAX_PATH_LENGTH: usize = 1024;
+const VERSION: &str = "1.2.2";
 
 fn main() {
     let mut path_array = parse_path_env();
@@ -63,40 +63,42 @@ fn path_remove(arg: &str, path_array: &mut Vec<String>, home_path: &Path) {
 fn update_shell_config(path_array: &[String], config_file: &Path) {
     let new_path = path_array.join(":");
 
-    let temp_file = config_file.with_extension("tmp");
-    let mut temp_config = File::create(&temp_file).unwrap_or_else(|e| {
-        eprintln!("fopen() error: {}", e);
-        std::process::exit(1);
-    });
+    // Read the existing contents of the config file
+    let config_contents = if config_file.exists() {
+        fs::read_to_string(config_file).unwrap_or_default()
+    } else {
+        String::new()
+    };
 
-    let config = File::open(config_file).unwrap_or_else(|e| {
-        eprintln!("fopen() error: {}", e);
-        std::process::exit(1);
-    });
-
+    let mut lines: Vec<String> = Vec::new();
     let mut path_line_found = false;
 
-    for line in io::BufReader::new(config).lines() {
-        let line = line.unwrap();
+    for line in config_contents.lines() {
         if line.starts_with("export PATH=") {
-            writeln!(temp_config, "export PATH=\"{}\"", new_path).unwrap();
+            // Replace the existing export PATH line with the new one
+            lines.push(format!("export PATH=\"{}\"", new_path));
             path_line_found = true;
         } else {
-            writeln!(temp_config, "{}", line).unwrap();
+            // Keep the original line
+            lines.push(line.to_string());
         }
     }
 
+    // If the export PATH line wasn't found, add it at the beginning of the file
     if !path_line_found {
-        writeln!(temp_config, "export PATH=\"{}\"", new_path).unwrap();
+        lines.insert(0, format!("export PATH=\"{}\"", new_path));
     }
 
-    // Copy the temporary file back to the original configuration file
-    fs::copy(&temp_file, config_file).unwrap();
+    // Write the updated contents back to the config file
+    let mut config_file = File::create(config_file).unwrap_or_else(|e| {
+        eprintln!("Error opening config file: {}", e);
+        std::process::exit(1);
+    });
 
-    // Remove the temporary file
-    fs::remove_file(&temp_file).unwrap();
+    for line in lines {
+        writeln!(config_file, "{}", line).unwrap();
+    }
 }
-
 
 fn add_or_remove_current_directory(path_array: &mut Vec<String>, home_path: &Path) {
     if let Ok(cwd) = env::current_dir() {
